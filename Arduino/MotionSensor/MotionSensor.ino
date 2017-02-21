@@ -1,10 +1,9 @@
-//#define MY_NODE_ID 100
 #define MY_RADIO_NRF24
 #define MY_BAUD_RATE 38400
 #define MY_DEBUG
 
 //#include <SPI.h>
-//#include <MyConfig.h>
+#include <MyConfig.h>
 #include <MySensors.h>
 
 //sensor IDs
@@ -24,17 +23,17 @@
 
 MyMessage pirMsg(SENSOR_ID_PIR, V_TRIPPED);
 MyMessage pirRelayMsg(SENSOR_ID_RELAY_PIR, V_STATUS);
-MyMessage sirenMsg(SENSOR_ID_RELAY_PIR, V_VAR1);
+MyMessage sirenMsg(SENSOR_ID_RELAY_SIREN, V_VAR1);
 
 enum RelayStatus
 {
   RELAY_STATUS_UNKNOWN,
   RELAY_STATUS_OFF,
   RELAY_STATUS_ON
-} ;
+};
 
 RelayStatus pirRelayStatus = RELAY_STATUS_UNKNOWN;
-RelayStatus sirenRelayOn = RELAY_STATUS_OFF;
+RelayStatus sirenRelayStatus = RELAY_STATUS_UNKNOWN;
 
 unsigned long sirenStopsAt = 0;
 
@@ -55,27 +54,27 @@ void controlPirRelay(RelayStatus state)
 
 void controlSiren(unsigned long delay)
 {
-  if (sirenRelayOn != RELAY_STATUS_ON && delay > 0)
+  if (sirenRelayStatus != RELAY_STATUS_ON && delay > 0)
   {
     Serial.print("Siren ON for ");
-    Serial.print(delay);
-    sirenRelayOn = RELAY_STATUS_ON;
+    Serial.println(delay);
+    sirenRelayStatus = RELAY_STATUS_ON;
     digitalWrite(PIN_SIREN, RELAY_ON);
     sirenStopsAt = millis() + delay;
   }
-  else if (sirenRelayOn == RELAY_STATUS_ON)
+  else if (sirenRelayStatus == RELAY_STATUS_ON)
   {
     if (delay == 0)
     {
-      Serial.print("Siren OFF");
-      sirenRelayOn = RELAY_STATUS_OFF;
+      Serial.println("Siren OFF");
+      sirenRelayStatus = RELAY_STATUS_OFF;
       digitalWrite(PIN_SIREN, RELAY_OFF);
       sirenStopsAt = 0;
     }
     else
     {
       Serial.print("Siren ON for ");
-      Serial.print(delay);
+      Serial.println(delay);
       sirenStopsAt = millis() + delay;
     }
   }
@@ -84,16 +83,25 @@ void controlSiren(unsigned long delay)
 void handleSirenTimeout()
 {
   unsigned long now = millis();
-  if (sirenRelayOn == RELAY_STATUS_ON && (now >= sirenStopsAt))
+  if (sirenRelayStatus == RELAY_STATUS_ON && (now >= sirenStopsAt))
   {
-    Serial.print("Siren timeout expired");
+    Serial.println("Siren timeout expired");
     controlSiren(0);
   }
 
-  if (sirenRelayOn != RELAY_STATUS_ON)
+  if (sirenRelayStatus == RELAY_STATUS_OFF)
+  {
+    Serial.println("Reporting Siren OFF");
     send(sirenMsg.set(0));
-  else
-    send(sirenMsg.set(sirenStopsAt - now));
+  }
+  else if (sirenRelayStatus == RELAY_STATUS_ON)
+  {
+    unsigned long delta = sirenStopsAt - now;
+    Serial.print("Reporting Siren ON for ");
+    Serial.print(delta);
+    Serial.println("ms");
+    send(sirenMsg.set(delta));
+  }
 }
 
 // the setup function runs once when you press reset or power the board
@@ -117,8 +125,25 @@ void presentation()
 
 void loop()
 {
+  //don't make any action until we get initial values for all relays
+  if (pirRelayStatus == RELAY_STATUS_UNKNOWN)
+  {
+    Serial.println("PIR relay status unknown, requesting it from controller");
+    request(SENSOR_ID_RELAY_PIR, V_STATUS);
+    smartSleep(500);
+    return;
+  }
+  if (sirenRelayStatus == RELAY_STATUS_UNKNOWN)
+  {
+    Serial.println("Siren relay status unknown, requesting it from controller");
+    request(SENSOR_ID_RELAY_SIREN, V_VAR1);
+    smartSleep(500);
+    return;
+  }
+
   //requesting status explicitly since it's often missied during smartSleep
   request(SENSOR_ID_RELAY_PIR, V_STATUS);
+  request(SENSOR_ID_RELAY_SIREN, V_STATUS);
 
   handleSirenTimeout();
 
@@ -147,8 +172,7 @@ void receive(const MyMessage &message)
   {
     if (message.type == V_STATUS)
     {
-      // Write some debug info
-      Serial.print("Incoming change for sensor:");
+      Serial.print("Incoming change for actuator:");
       Serial.print(message.sensor);
       Serial.print(", New status: ");
       Serial.println(message.getBool());
@@ -160,8 +184,7 @@ void receive(const MyMessage &message)
   {
     if (message.type == V_VAR1)
     {
-      // Write some debug info
-      Serial.print("Incoming change for sensor:");
+      Serial.print("Incoming change for actuator:");
       Serial.print(message.sensor);
       Serial.print(", New value: ");
       Serial.println(message.getULong());

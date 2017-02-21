@@ -29,7 +29,7 @@ void setup() {
   ***/
 
   for (int i = 0 ; i < EEPROM.length() ; i++) {
-    EEPROM.write(i, 0);
+    EEPROM.write(i, 0xff);
   }
 
   // turn the LED on when we're done
