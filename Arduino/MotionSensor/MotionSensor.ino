@@ -19,7 +19,8 @@
 #define RELAY_ON 1  // GPIO value to write to turn on attached relay
 #define RELAY_OFF 0 // GPIO value to write to turn off attached relay
 
-#define SLEEP_TIME 15000 // Sleep time between reports (in milliseconds)
+#define SLEEP_TIME 15000     // Sleep time between reports (in milliseconds)
+#define SHORT_SLEEP_TIME 200 // Short sleep time
 
 MyMessage pirMsg(SENSOR_ID_PIR, V_TRIPPED);
 MyMessage pirRelayMsg(SENSOR_ID_RELAY_PIR, V_STATUS);
@@ -36,6 +37,7 @@ RelayStatus pirRelayStatus = RELAY_STATUS_UNKNOWN;
 RelayStatus sirenRelayStatus = RELAY_STATUS_UNKNOWN;
 
 unsigned long sirenStopsAt = 0;
+unsigned long now = 0;
 
 void controlPirRelay(RelayStatus state)
 {
@@ -52,7 +54,12 @@ void controlPirRelay(RelayStatus state)
   }
 }
 
-void controlSiren(unsigned long delay)
+/* 
+delay > 0, either set siren ON or extend time
+delay == 0, don't change anything
+delay <0, set siren OFF
+*/
+void controlSiren(long delay)
 {
   if (sirenRelayStatus != RELAY_STATUS_ON && delay > 0)
   {
@@ -60,11 +67,14 @@ void controlSiren(unsigned long delay)
     Serial.println(delay);
     sirenRelayStatus = RELAY_STATUS_ON;
     digitalWrite(PIN_SIREN, RELAY_ON);
-    sirenStopsAt = millis() + delay;
+    sirenStopsAt = now + delay;
+
+    Serial.println("Reporting Siren ON state was accepted");
+    send(sirenMsg.set(0));
   }
   else if (sirenRelayStatus == RELAY_STATUS_ON)
   {
-    if (delay == 0)
+    if (delay < 0)
     {
       Serial.println("Siren OFF");
       sirenRelayStatus = RELAY_STATUS_OFF;
@@ -75,32 +85,17 @@ void controlSiren(unsigned long delay)
     {
       Serial.print("Siren ON for ");
       Serial.println(delay);
-      sirenStopsAt = millis() + delay;
+      sirenStopsAt = now + delay;
     }
   }
 }
 
 void handleSirenTimeout()
 {
-  unsigned long now = millis();
   if (sirenRelayStatus == RELAY_STATUS_ON && (now >= sirenStopsAt))
   {
     Serial.println("Siren timeout expired");
-    controlSiren(0);
-  }
-
-  if (sirenRelayStatus == RELAY_STATUS_OFF)
-  {
-    Serial.println("Reporting Siren OFF");
-    send(sirenMsg.set(0));
-  }
-  else if (sirenRelayStatus == RELAY_STATUS_ON)
-  {
-    unsigned long delta = sirenStopsAt - now;
-    Serial.print("Reporting Siren ON for ");
-    Serial.print(delta);
-    Serial.println("ms");
-    send(sirenMsg.set(delta));
+    controlSiren(-1);
   }
 }
 
@@ -125,27 +120,33 @@ void presentation()
 
 void loop()
 {
-  //don't make any action until we get initial values for all relays
+  //retrieve current time and initial values for all relays first
+  if (!now)
+  {
+    requestTime();
+    smartSleep(SHORT_SLEEP_TIME);
+    return;
+  }
   if (pirRelayStatus == RELAY_STATUS_UNKNOWN)
   {
     Serial.println("PIR relay status unknown, requesting it from controller");
     request(SENSOR_ID_RELAY_PIR, V_STATUS);
-    smartSleep(500);
+    smartSleep(SHORT_SLEEP_TIME);
     return;
   }
   if (sirenRelayStatus == RELAY_STATUS_UNKNOWN)
   {
     Serial.println("Siren relay status unknown, requesting it from controller");
     request(SENSOR_ID_RELAY_SIREN, V_VAR1);
-    smartSleep(500);
+    smartSleep(SHORT_SLEEP_TIME);
     return;
   }
+
+  requestTime();
 
   //requesting status explicitly since it's often missied during smartSleep
   request(SENSOR_ID_RELAY_PIR, V_STATUS);
   request(SENSOR_ID_RELAY_SIREN, V_STATUS);
-
-  handleSirenTimeout();
 
   if (pirRelayStatus == RELAY_STATUS_ON)
   {
@@ -156,7 +157,7 @@ void loop()
     Serial.println(tripped);
     send(pirMsg.set(tripped)); // Send tripped value to gw
 
-    // Sleep until interrupt comes in on motion sensor. Send update every two minute.
+    // Sleep until interrupt comes in on motion sensor
     smartSleep(digitalPinToInterrupt(PIN_PIR), CHANGE, SLEEP_TIME);
   }
   else
@@ -187,9 +188,9 @@ void receive(const MyMessage &message)
       Serial.print("Incoming change for actuator:");
       Serial.print(message.sensor);
       Serial.print(", New value: ");
-      Serial.println(message.getULong());
+      Serial.println(message.getLong());
 
-      controlSiren(message.getULong());
+      controlSiren(message.getLong());
     }
   }
   else
@@ -197,4 +198,13 @@ void receive(const MyMessage &message)
     Serial.print("Unknown sensor ID: ");
     Serial.println(message.sensor);
   }
+}
+
+void receiveTime(unsigned long ts)
+{
+  Serial.print("Current time: ");
+  Serial.println(ts);
+  now = ts;
+
+  handleSirenTimeout();
 }
