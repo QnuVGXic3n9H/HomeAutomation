@@ -1,0 +1,13 @@
+git clone https://github.com/thkala/actkbd
+
+cd actkbd
+make all 
+sudo make install
+cd ..
+
+sudo ln -s $PWD/85-actkbd.rules /lib/udev/rules.d/
+
+sudo ln -s $PWD/actkbd1.service /lib/systemd/system/
+
+sudo udevadm control --reload-rules
+sudo udevadm test -a add $(udevadm info -q path -n /dev/input/event1)

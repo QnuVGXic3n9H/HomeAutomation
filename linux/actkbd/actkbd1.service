@@ -1,0 +1,7 @@
+[Unit]
+Description=ActKbd 1
+ 
+[Service]
+ExecStart=/usr/local/sbin/actkbd -x -c /etc/actkbd-MyController.conf -d /dev/input/event1 -p /tmp/actkbd1.pid 
+PIDFile=/tmp/actkbd1.pid
+ 

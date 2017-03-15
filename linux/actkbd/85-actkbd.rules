@@ -1,0 +1,6 @@
+# udev rules for keyboards
+ACTION=="add", SUBSYSTEM=="input", KERNEL=="event[0-9]*" \
+  RUN+="/bin/systemctl start actkbd%n.service"
+
+ACTION=="remove", SUBSYSTEM=="input", KERNEL=="event[0-9]*" \
+  RUN+="/bin/systemctl stop actkbd%n.service"
