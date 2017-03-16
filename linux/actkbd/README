@@ -10,5 +10,10 @@ sudo ln -s $PWD/85-actkbd.rules /lib/udev/rules.d/
 sudo ln -s $PWD/actkbd0.service /lib/systemd/system/
 sudo ln -s $PWD/actkbd1.service /lib/systemd/system/
 
+sudo ln -s $PWD/actkbd-MyController.conf /etc/actkbd-MyController.conf
+
+sudo systemctl start actkbd0.service
+sudo systemctl stop actkbd0.service
+
 sudo udevadm control --reload-rules
 sudo udevadm test -a add $(udevadm info -q path -n /dev/input/event1)
