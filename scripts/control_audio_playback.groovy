@@ -21,11 +21,13 @@ mcApi.logger().info("Current AlarmLevel value(" + alarmLevelVarValue + ") new va
 
 
 if (newAlarmLevel == 0) {
-    //Stop playback
-    (mpc + "stop").execute()
-    (mpc + "clear").execute()
+    if(alarmLevelVarValue>0) {
+        //Stop playback
+        (mpc + "stop").execute()
+        (mpc + "clear").execute()
 
-    mcApi.logger().info("Playback stopped");
+        mcApi.logger().info("Playback stopped");
+    }
 
 } else {
     if (newAlarmLevel > alarmLevelVarValue) {
