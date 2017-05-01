@@ -24,7 +24,6 @@
 
 MyMessage pirMsg(SENSOR_ID_PIR, V_TRIPPED);
 MyMessage pirRelayMsg(SENSOR_ID_RELAY_PIR, V_STATUS);
-MyMessage sirenMsg(SENSOR_ID_RELAY_SIREN, V_VAR1);
 
 enum RelayStatus
 {
@@ -46,48 +45,58 @@ void controlPirRelay(RelayStatus state)
     Serial.print("PIR relay ");
     Serial.println(state == RELAY_STATUS_ON ? "ON" : "OFF");
     pirRelayStatus = state;
-    digitalWrite(PIN_PIR_RELAY, state == RELAY_STATUS_ON ? RELAY_ON : RELAY_OFF);
 
     //send updated PIR state
     if (pirRelayStatus != RELAY_STATUS_ON)
       send(pirMsg.set(false));
   }
+
+  digitalWrite(PIN_PIR_RELAY, pirRelayStatus == RELAY_STATUS_ON ? RELAY_ON : RELAY_OFF);
 }
 
-/* 
-delay > 0, either set siren ON or extend time
-delay == 0, don't change anything
-delay <0, set siren OFF
+/*
+  stopAt > 0, either set siren ON or extend time
+  stopAt == 0, set siren OFF
 */
-void controlSiren(long delay)
+void controlSiren(unsigned long stopAt)
 {
-  if (sirenRelayStatus != RELAY_STATUS_ON && delay > 0)
+  if (sirenRelayStatus != RELAY_STATUS_ON)
   {
-    Serial.print("Siren ON for ");
-    Serial.println(delay);
-    sirenRelayStatus = RELAY_STATUS_ON;
-    digitalWrite(PIN_SIREN, RELAY_ON);
-    sirenStopsAt = now + delay;
-
-    Serial.println("Reporting Siren ON state was accepted");
-    send(sirenMsg.set(0));
-  }
-  else if (sirenRelayStatus == RELAY_STATUS_ON)
-  {
-    if (delay < 0)
+    if (stopAt > now)
     {
-      Serial.println("Siren OFF");
-      sirenRelayStatus = RELAY_STATUS_OFF;
-      digitalWrite(PIN_SIREN, RELAY_OFF);
-      sirenStopsAt = 0;
+      Serial.print("Siren ON until ");
+      Serial.print(stopAt);
+      Serial.print(", ");
+      Serial.print(stopAt-now);
+      Serial.println(" seconds left");
+      sirenRelayStatus = RELAY_STATUS_ON;
+      sirenStopsAt = stopAt;
     }
     else
     {
-      Serial.print("Siren ON for ");
-      Serial.println(delay);
-      sirenStopsAt = now + delay;
+      Serial.println("Siren OFF");
+      sirenRelayStatus = RELAY_STATUS_OFF;
     }
   }
+  else if (sirenRelayStatus == RELAY_STATUS_ON)
+  {
+    if (stopAt == 0)
+    {
+      Serial.println("Siren OFF");
+      sirenRelayStatus = RELAY_STATUS_OFF;
+    }
+    else if (stopAt > sirenStopsAt)
+    {
+      Serial.print("Siren ON until ");
+      Serial.print(stopAt);
+      Serial.print(", ");
+      Serial.print(stopAt-now);
+      Serial.println(" seconds left");
+      sirenStopsAt = stopAt;
+    }
+  }
+  
+  digitalWrite(PIN_SIREN, sirenRelayStatus == RELAY_STATUS_ON ? RELAY_ON : RELAY_OFF);
 }
 
 void handleSirenTimeout()
@@ -95,7 +104,7 @@ void handleSirenTimeout()
   if (sirenRelayStatus == RELAY_STATUS_ON && (now >= sirenStopsAt))
   {
     Serial.println("Siren timeout expired");
-    controlSiren(-1);
+    controlSiren(0);
   }
 }
 
@@ -105,6 +114,9 @@ void setup()
   pinMode(PIN_PIR, INPUT);
   pinMode(PIN_PIR_RELAY, OUTPUT);
   pinMode(PIN_SIREN, OUTPUT);
+
+  digitalWrite(PIN_PIR_RELAY, RELAY_OFF);
+  digitalWrite(PIN_SIREN, RELAY_OFF);
 
   Serial.println("Node is running");
 }
@@ -120,33 +132,30 @@ void presentation()
 
 void loop()
 {
-  //retrieve current time and initial values for all relays first
+  requestTime();
   if (!now)
   {
-    requestTime();
+    Serial.println("Current time unknown, requesting it from controller");
     smartSleep(SHORT_SLEEP_TIME);
     return;
   }
+
+  //request initial values for all relays
+  request(SENSOR_ID_RELAY_PIR, V_STATUS);
+  request(SENSOR_ID_RELAY_SIREN, V_VAR1);
+  smartSleep(SHORT_SLEEP_TIME);
+
+  //don't act until all required params are known
   if (pirRelayStatus == RELAY_STATUS_UNKNOWN)
   {
     Serial.println("PIR relay status unknown, requesting it from controller");
-    request(SENSOR_ID_RELAY_PIR, V_STATUS);
-    smartSleep(SHORT_SLEEP_TIME);
     return;
   }
   if (sirenRelayStatus == RELAY_STATUS_UNKNOWN)
   {
     Serial.println("Siren relay status unknown, requesting it from controller");
-    request(SENSOR_ID_RELAY_SIREN, V_VAR1);
-    smartSleep(SHORT_SLEEP_TIME);
     return;
   }
-
-  requestTime();
-
-  //requesting status explicitly since it's often missied during smartSleep
-  request(SENSOR_ID_RELAY_PIR, V_STATUS);
-  request(SENSOR_ID_RELAY_SIREN, V_STATUS);
 
   if (pirRelayStatus == RELAY_STATUS_ON)
   {
@@ -188,9 +197,9 @@ void receive(const MyMessage &message)
       Serial.print("Incoming change for actuator:");
       Serial.print(message.sensor);
       Serial.print(", New value: ");
-      Serial.println(message.getLong());
+      Serial.println(message.getULong());
 
-      controlSiren(message.getLong());
+      controlSiren(message.getULong());
     }
   }
   else
@@ -206,5 +215,6 @@ void receiveTime(unsigned long ts)
   Serial.println(ts);
   now = ts;
 
-  handleSirenTimeout();
+  if (sirenRelayStatus != RELAY_STATUS_UNKNOWN)
+    handleSirenTimeout();
 }
