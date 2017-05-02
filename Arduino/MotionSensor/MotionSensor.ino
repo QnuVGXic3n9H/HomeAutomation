@@ -16,8 +16,8 @@
 #define PIN_PIR_RELAY 4
 #define PIN_SIREN 5
 
-#define RELAY_ON 1  // GPIO value to write to turn on attached relay
-#define RELAY_OFF 0 // GPIO value to write to turn off attached relay
+#define RELAY_ON 0  // GPIO value to write to turn on attached relay
+#define RELAY_OFF 1 // GPIO value to write to turn off attached relay
 
 #define SLEEP_TIME 15000     // Sleep time between reports (in milliseconds)
 #define SHORT_SLEEP_TIME 200 // Short sleep time
